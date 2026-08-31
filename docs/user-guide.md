@@ -127,8 +127,17 @@ viewer's initial window.
 Use **Settings > Scratch** for scans on slow network storage. The persistent
 local cache copies each required source file once, validates it by source size
 and modification time, and reuses it across previews and reconstruction.
-Outputs retain the original Nikon naming and destination rules. Ensure the local
-scratch disk has enough free space for the selected workflow.
+Outputs retain the original Nikon naming and destination rules.
+
+When the Distribution destination is on network storage, back-and-forth writes
+and verifies the TIFF stack, metadata, and compressed ZIP in local scratch
+first. It then publishes the completed files to a destination-side transaction
+with byte-level progress. Existing destination files are replaced only after
+the complete transfer succeeds. If publication fails, the prior destination
+package remains intact and the completed local package is retained at the
+recovery path shown in the error message. The scratch preflight reserves space
+for the uncompressed TIFF stack and the ZIP, so ensure the selected local
+scratch disk has enough free space before export.
 
 ## Saved jobs
 

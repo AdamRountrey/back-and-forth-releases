@@ -96,6 +96,12 @@ The copy dialog reports byte-level progress and supports cancellation. Completed
 files are reused only while source size and modification time still match;
 interrupted copies are never treated as valid cache data.
 
+Distribution packages bound for network storage are generated, compressed, and
+verified in local scratch before a buffered, byte-progressed publication step.
+The destination is updated transactionally; a failed network publication keeps
+the previous package intact and preserves the completed local package for
+recovery.
+
 ## AI Assistance Disclosure
 
 AI assistance from OpenAI GPT-5.5 was used to help produce code, documentation,
