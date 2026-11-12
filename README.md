@@ -37,8 +37,10 @@ methods remain available when CUDA is unavailable.
 ## Supported Data
 
 - Nikon XT/XTek circular cone-beam projection TIFF series with XTekCT metadata.
-- Nikon float32 VGI/VOL reconstructions with post-reconstruction XTekCT metadata
-  for archival Distribution export.
+- Nikon float32, unsigned 16-bit, and explicitly signed 16-bit VGI/VOL
+  reconstructions with post-reconstruction XTekCT metadata for archival
+  Distribution export, thumbnail previews, and PLY isosurfaces. Imported raw
+  VOL data must be headerless and little-endian.
 - Complete 360-degree, valid short-scan, true limited-angle, and recoverable
   displaced-detector acquisitions are classified separately.
 

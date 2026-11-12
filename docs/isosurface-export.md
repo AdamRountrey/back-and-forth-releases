@@ -1,7 +1,7 @@
 # PLY Isosurface Export
 
 back-and-forth can extract a measurement-oriented triangle isosurface from a
-reconstructed float32 VGI/VOL volume. The exported surface is not smoothed or
+reconstructed float32 or imported 16-bit integer VGI/VOL volume. The exported surface is not smoothed or
 regularized.
 
 ## User Workflow
@@ -11,7 +11,7 @@ regularized.
 2. Inspect the GPU ray-cast preview. Two-class Otsu thresholding supplies a
    reproducible first guess; adjust the attenuation isovalue when needed.
 3. Select `Create PLY`. The final mesh is calculated from the original
-   full-resolution float32 VOL, not from the downsampled preview.
+   full-resolution stored VOL, not from the downsampled preview.
 
 The **Vertex colors** menu optionally attaches CT measurements to that surface:
 
@@ -23,7 +23,7 @@ The **Vertex colors** menu optionally attaches CT measurements to that surface:
 
 Depths are in millimetres and follow the negative exported vertex normal. The
 preview displays the same normal-direction definition on the sampled volume;
-the saved values are recalculated from the original full-resolution float32
+the saved values are recalculated from the original full-resolution
 VOL. `Auto Range` only selects display colors. It does not clip or rescale the
 saved attenuation measurement.
 
@@ -81,7 +81,10 @@ Mapped binary PLY vertices contain:
 x y z nx ny nz ct_value red green blue mapping_valid
 ```
 
-`ct_value` remains in the reconstruction's native float attenuation units.
+`ct_value` remains in the stored volume's native units. For imported integer
+volumes these are the integer voxel values, not inferred attenuation units.
+Integer reads convert exactly to float before interpolation; they do not use
+the display LUT. PLY comments record the source storage type and value domain.
 RGB is a visualization using a documented nine-knot linear approximation to
 the viridis color map and the user-selected color range. Values outside that
 range are color-clipped, but `ct_value` is not changed. PLY header comments

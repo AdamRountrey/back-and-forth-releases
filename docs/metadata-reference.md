@@ -173,7 +173,17 @@ preserved for compatibility.
 | `NormalizedSirt` | Whether SIRT row/column normalization was enabled. |
 | `DataToleranceRmse` | Data-residual RMSE stopping tolerance. |
 | `TvWeight` | Total-variation regularization weight. |
-| `TvPrimalStep`, `TvDualStep`, `TvExtrapolation` | Chambolle-Pock primal step, dual step, and extrapolation parameters. |
+| `TvPrimalStep`, `TvDualStep` | Requested Chambolle-Pock primal and dual steps, before automatic norm-based reduction. Older outputs with only these fields do not establish the effective steps. |
+| `TvExtrapolation` | Chambolle-Pock extrapolation parameter, theta. |
+| `TvEffectivePrimalStep`, `TvEffectiveDualStep` | Steps actually used by the solver, captured during execution. |
+| `TvOperatorNormSquaredEstimate` | Power-iteration estimate of the squared norm of the combined data and gradient operator, including `TvNormSafetyFactor`. An estimate, not a certified upper bound. |
+| `TvNormEstimator` | `power-iteration-AtA-plus-gradient-adjoint-gradient`: iteration on the data normal operator plus the finite-difference gradient normal operator. |
+| `TvNormIterations`, `TvNormMaxIterations` | Actual and maximum power iterations (maximum currently 24). |
+| `TvNormRelativeTolerance` | Rayleigh-value convergence tolerance. After at least five iterations, stop when the change is at most this value times `max(1, abs(current Rayleigh value))`. |
+| `TvNormSafetyFactor` | Multiplier on the final Rayleigh estimate (currently 1.25). This numerical precaution does not prove that the true operator norm is bounded. |
+| `TvPreparationBackend` | Backend used for FDK backprojection and norm estimation: `cpu` or `cuda`. TIFF loading and host staging still use the CPU. |
+| `TvInitialization` | `fdk`: initial volume is FDK, with negatives clamped only when `NonNegativity` is enabled. |
+| `TvInitializationFilter`, `TvInitializationFilterCutoffFraction`, `TvInitializationRedundancyWeight` | Filter, cutoff, and requested redundancy policy for the FDK initializer, distinct from the iterative objective. `auto` denotes automatic redundancy selection from scan geometry. |
 | `TvGradientSteps` | Number of inner TV-gradient updates where used by the selected method. |
 | `PocsBeta`, `PocsBetaReduction` | ASD-POCS projection update and reduction factor. |
 | `AsdAlpha`, `AsdAlphaReduction`, `AsdRmax` | ASD-POCS steepest-descent step, reduction factor, and update-ratio control. |
@@ -244,8 +254,23 @@ the review flag must also be considered.
 
 ## VGI and VOL
 
-The `.vol` file is a headerless, contiguous float32 voxel array. The `.vgi`
+Back-and-forth reconstruction writes a headerless, contiguous float32 `.vol`
+voxel array. Existing-volume import also supports little-endian unsigned and
+explicitly signed 16-bit integer arrays. The `.vgi`
 describes its shape, values, physical placement, and display defaults.
+
+On import, `[file1]` takes precedence for stored dimensions, scalar type, bit
+depth, and data range. `[representation]` is a fallback for omitted dimensions
+and type. A display range is not substituted for a missing stored range when
+`[file1]` declares its own type;
+a partially specified file type (only datatype or only bit depth) is rejected.
+This precedence follows the CT Pro manual's distinction between actual file
+data and display representation, not a conversion between the two [1]. A
+float32 VOL may legitimately have an unsigned-16 display representation.
+Byte count must match the stored type and dimensions exactly. Unsupported
+types, headers, and non-raw storage are rejected. Integer samples are converted
+exactly to float for processing; they are not rescaled or assigned attenuation
+units merely because the source XTekCT contains output-unit fields.
 
 | VGI field | Meaning | Source |
 | --- | --- | --- |
@@ -305,9 +330,10 @@ historical field names and orientation string for compatibility.
 | `DistributionFilenamesIncludeCTEESCT` | Whether `_CTEES_CT` was inserted into applicable archival filenames. |
 | `ScannerXML` | Structural JSON conversion of `ctprofile.xml`. XML attributes become `@name` keys and repeated children become arrays. Empty/absent XML values remain empty or null. |
 | `CTPro3D` | Structural JSON conversion of the final post-reconstruction XTekCT, including its `[BackAndForth]` section. Values remain the actual XTekCT values rather than being reinterpreted. |
-| `ConversionTo16bit` | Object containing the global float32-to-uint16 TIFF conversion record. |
-| `ConversionFunction` | The recorded TIFF mapping: `16output = SCALE * (32input + OFFSET)`. |
-| `SCALE`, `OFFSET` | One global linear mapping from the complete finite float32 VOL range to uint16. Recover float values with `input = output / SCALE - OFFSET`. |
+| `ConversionTo16bit` | Object containing the global stored-VOL-value-to-uint16 TIFF conversion record. |
+| `ConversionTo16bit.SourceStorageType`, `InputValueDomain` | Present for imported integer VOLs: `uint16` or `int16`, and an explicit statement that input means stored VOL values without inferred attenuation calibration. Float32 exports retain the existing archival wording and fields. |
+| `ConversionFunction` | The recorded TIFF mapping: `16output = SCALE * (32input + OFFSET)` for float32 sources; `16output = SCALE * (input + OFFSET)` for imported integer sources. |
+| `SCALE`, `OFFSET` | Unsigned 16-bit VOL values are preserved with `SCALE=1`, `OFFSET=0`. Signed 16-bit VOLs use `SCALE=1`, `OFFSET=32768`: a fixed shift without range stretching. Float32 VOLs use one global linear mapping from their complete finite stored range to uint16. Recover source values with `input = output / SCALE - OFFSET` (exact for integer inputs, subject to rounding for float32); pixels replaced by the required origin annotation in TIFF 0000 are excluded. This does not reconstruct any unknown earlier attenuation calibration. |
 | `TIFOrientation` | Object containing the historical archive orientation record. |
 | `XYZOrigin` | Historical archive convention value `upper_left_firstImage`. Its wording and value are retained for compatibility with existing deposits. |
 | `MethodString` | Human-readable reconstruction and export method summary. |
@@ -350,6 +376,28 @@ Back-and-forth therefore preserves the original files and XML structure. An
 unknown XML element or numeric code must be treated as opaque Nikon metadata,
 not as a back-and-forth scientific interpretation. `ctinfo.xml` is copied as a
 source record but is not duplicated inside the combined JSON.
+
+## Existing-volume compatibility checks
+
+These are back-and-forth import checks, not additional Nikon field definitions
+or a published provenance-identification algorithm. The importer compares
+`VoxelsX/Y/Z` to VGI `file1.Size` (or `representation.size` when omitted) exactly, without axis permutations,
+and compares `VoxelSizeX/Y/Z` to VGI `geometry.resolution * geometry.scale`
+per axis. It follows the application's millimetre interpretation above; an
+explicit XTekCT `Units` other than `mm` cannot be verified by this check.
+Missing, nonfinite, nonpositive or malformed geometry is not a match.
+
+Spacing comparisons allow the larger of `1e-9 mm` and `5e-6` times the larger
+spacing on that axis, to accommodate rounded decimal VGI values. This is an
+application tolerance, not a claimed Nikon specification. Known mismatches
+and unverifiable metadata block archival export until resolved.
+
+The chooser uses filename relationships to suggest compatible candidates,
+but never infers COR, beam-hardening settings, attenuation scaling, specimen
+identity or reconstruction provenance from a grid match. In particular, VGI
+`position` is not compared to XTekCT `OffsetX/Y/Z` to select a file: those
+fields lack a sufficiently established common semantic definition. Selection
+does not rewrite the selected XTekCT or XML files.
 
 ## References
 
